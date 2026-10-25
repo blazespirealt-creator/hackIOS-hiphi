@@ -37,27 +37,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install edk2-pytool-library edk2-pytool-extensions setup-cfg-fmt
 
-      - name: Compile UEFI Image
+      - name: Locate and Compile UEFI Image
         run: |
           # Set GCC arm64 toolchain environment variables
           export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
 
-          # Find and execute the Python build script in the repository
-          if [ -f "build.py" ]; then
-            python3 build.py -d hiphi
-          elif [ -f "edk2_build.py" ]; then
-            python3 edk2_build.py -d hiphi
-          elif [ -f "Platforms/hiphi/platform.build.py" ]; then
-            python3 Platforms/hiphi/platform.build.py
+          echo "Searching for build scripts across the repository..."
+          find . -name "*build*.py" -o -name "BuildConfig.py"
+
+          # Find and execute the first matching build script
+          BUILD_SCRIPT=$(find . -name "*build*.py" -o -name "BuildConfig.py" | head -n 1)
+
+          if [ -n "$BUILD_SCRIPT" ]; then
+            echo "Executing build script: $BUILD_SCRIPT"
+            python3 "$BUILD_SCRIPT" --device hiphi || python3 "$BUILD_SCRIPT" -d hiphi
           else
-            echo "Searching for available build scripts..."
-            BUILD_SCRIPT=$(find . -maxdepth 2 -name "*build*.py" | head -n 1)
-            if [ -n "$BUILD_SCRIPT" ]; then
-              python3 "$BUILD_SCRIPT" -d hiphi
-            else
-              echo "Error: No Python build script found in repository."
-              exit 1
-            fi
+            echo "Error: No Python build script found in repository or submodules."
+            exit 1
           fi
 
       - name: Upload Built UEFI Image
