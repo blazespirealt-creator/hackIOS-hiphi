@@ -37,24 +37,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install edk2-pytool-library edk2-pytool-extensions setup-cfg-fmt
 
-      - name: Locate and Compile UEFI Image
+      - name: Run Build Script
         run: |
-          # Set GCC arm64 toolchain environment variables
-          export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
-
-          echo "Searching for build scripts across the repository..."
-          find . -name "*build*.py" -o -name "BuildConfig.py"
-
-          # Find and execute the first matching build script
-          BUILD_SCRIPT=$(find . -name "*build*.py" -o -name "BuildConfig.py" | head -n 1)
-
-          if [ -n "$BUILD_SCRIPT" ]; then
-            echo "Executing build script: $BUILD_SCRIPT"
-            python3 "$BUILD_SCRIPT" --device hiphi || python3 "$BUILD_SCRIPT" -d hiphi
-          else
-            echo "Error: No Python build script found in repository or submodules."
-            exit 1
-          fi
+          chmod +x build.sh
+          ./build.sh hiphi
 
       - name: Upload Built UEFI Image
         uses: actions/upload-artifact@v4
@@ -64,3 +50,5 @@ jobs:
             **/*.img
             **/*.bin
             **/*.fd
+            Build/**/*.fd
+            Build/**/*.img
