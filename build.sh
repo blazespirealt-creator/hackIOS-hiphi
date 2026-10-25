@@ -7,7 +7,7 @@ echo "Starting UEFI build process for device: $DEVICE"
 export WORKSPACE="$PWD"
 export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
 
-# Clone edk2 with recursive submodules to include Brotli and other tools
+# Clone edk2 with submodules if missing
 if [ ! -d "edk2" ]; then
     echo "Cloning edk2 with submodules..."
     git clone --depth 1 --recursive https://github.com/tianocore/edk2.git
@@ -32,27 +32,30 @@ export PACKAGES_PATH="$WORKSPACE/edk2:$WORKSPACE/edk2-platforms:$WORKSPACE/edk2-
 echo "Building BaseTools..."
 make -C edk2/BaseTools
 
+# Add BaseTools binaries to PATH so the 'build' command works
+export PATH="$WORKSPACE/edk2/BaseTools/Bin/Linux-x86_64:$PATH"
+
 # Source setup environment script
 echo "Initializing environment..."
 set +e
 source edk2/edksetup.sh
 set -e
 
-# Build platform configuration matching the device codename
+# Find the correct Snapdragon / device DSC file (avoiding unrelated platforms like Loongson)
+DSC_FILE=""
 if [ -f "Platforms/Sm8450Pkg/Sm8450.dsc" ]; then
-    build -a AARCH64 -t GCC5 -p Platforms/Sm8450Pkg/Sm8450.dsc
-elif [ -f "DeviceTreePkg/DeviceTree.dsc" ]; then
-    build -a AARCH64 -t GCC5 -p DeviceTreePkg/DeviceTree.dsc
+    DSC_FILE="Platforms/Sm8450Pkg/Sm8450.dsc"
 else
-    echo "Looking for available DSC files..."
-    DSC_FILE=$(find . -name "*.dsc" | head -n 1)
-    if [ -n "$DSC_FILE" ]; then
-        echo "Using DSC: $DSC_FILE"
-        build -a AARCH64 -t GCC5 -p "$DSC_FILE"
-    else
-      echo "Error: No EDK2 DSC platform file found."
-      exit 1
-    fi
+    # Search specifically for sm8450, qcom, or hiphi DSC files
+    DSC_FILE=$(find edk2-platforms -name "*Sm8450*.dsc" -o -name "*hiphi*.dsc" -o -name "*Qcom*.dsc" | head -n 1)
+fi
+
+if [ -n "$DSC_FILE" ]; then
+    echo "Using DSC: $DSC_FILE"
+    build -a AARCH64 -t GCC5 -p "$DSC_FILE"
+else
+    echo "Error: Could not find a valid SM8450 / Snapdragon DSC platform file."
+    exit 1
 fi
 
 echo "Build completed successfully!"
