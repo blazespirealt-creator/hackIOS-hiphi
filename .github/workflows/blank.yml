@@ -1,130 +1,55 @@
-
-name: HackiOS hiphi UEFI Build
+name: Build UEFI for Motorola Edge 30 Pro (hiphi)
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: read
+  push:
+    branches: [ main, master ]
 
 jobs:
-  build-uefi:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:22.04
 
     steps:
-      - name: Checkout Motorola device repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          path: device
+          submodules: recursive
 
-      - name: Install build dependencies
+      - name: Install Build Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git build-essential clang lld llvm \
-            nasm python3 python3-pip python3-venv \
-            device-tree-compiler uuid-dev \
-            acpica-tools gcc-aarch64-linux-gnu \
-            binutils-aarch64-linux-gnu
+          apt-get update && apt-get install -y \
+            build-essential \
+            uuid-dev \
+            iasl \
+            git \
+            python3 \
+            python3-pip \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            nasm \
+            acpica-tools \
+            zip
 
-      - name: Checkout HackiOS
-        uses: actions/checkout@v4
-        with:
-          repository: oosexgang/hackios-xnu-kernel
-          path: hackios
-
-      - name: Prepare device configuration
+      - name: Set up Environment and Compile UEFI
         run: |
-          set -eux
-          cd hackios
-
-          test -f ../device/hiphi.dtb
-
-          common/new-device.sh hiphi ../device/hiphi.dtb
-
-          test -f common/devices/hiphi.conf
-          test -f common/devices/hiphi.platform.c
-
-      - name: Prepare Mu-Silicium source
-        run: |
-          set -eux
-          cd hackios
-
-          bash uefi/apply.sh
-
-          test -f Mu-Silicium/build_uefi.py
-
-      - name: Check Motorola platform implementation
-        run: |
-          set -eu
-          cd hackios
-
-          echo "Checking for a real hiphi UEFI platform."
-
-          find Mu-Silicium/Platforms \
-            -maxdepth 3 -type d -print
-
-          if [ ! -d Mu-Silicium/Platforms/Motorola/hiphiPkg ]; then
-            echo "::error::Motorola hiphiPkg is missing."
-            echo "Implement the hiphi platform package before building."
+          # If your repository has a custom build script, it will execute here.
+          # Otherwise, adjust this step to match your project's compile commands for SM8450 / hiphi.
+          if [ -f "build.sh" ]; then
+            bash build.sh --device hiphi
+          elif [ -f "compile.sh" ]; then
+            bash compile.sh hiphi
+          else
+            echo "No standard build script found. Please check your repository structure."
             exit 1
           fi
 
-          if [ ! -d Mu-Silicium/Binaries/hiphi ]; then
-            echo "::error::hiphi firmware drivers are missing."
-            exit 1
-          fi
-
-      - name: Install Python requirements
-        run: |
-          set -eux
-          cd hackios
-
-          python3 -m venv venv
-          venv/bin/pip install \
-            -r Mu-Silicium/pip-requirements.txt
-
-      - name: Build Motorola UEFI
-        run: |
-          set -eux
-          cd hackios
-
-          ln -sfn /usr/bin/nasm \
-            Mu-Silicium/Mu_Basecore/BaseTools/Bin/mu_nasm_extdep/Linux-x86-64/nasm
-
-          ln -sfn /usr/bin/ndisasm \
-            Mu-Silicium/Mu_Basecore/BaseTools/Bin/mu_nasm_extdep/Linux-x86-64/ndisasm
-
-          cd Mu-Silicium
-          source ../venv/bin/activate
-
-          python3 build_uefi.py \
-            -d hiphi \
-            -r RELEASE
-
-      - name: Package UEFI build artifacts
-        run: |
-          set -eux
-          cd hackios
-
-          mkdir -p ../artifacts
-
-          find Mu-Silicium/Build/hiphiPkg \
-            -name SILICIUM_UEFI.fd \
-            -type f \
-            -exec cp {} ../artifacts/hiphi-uefi.fd \;
-
-          test -s ../artifacts/hiphi-uefi.fd
-
-          sha256sum ../artifacts/hiphi-uefi.fd \
-            > ../artifacts/SHA256SUMS.txt
-
-      - name: Upload UEFI artifacts
-        if: success()
+      - name: Upload Built UEFI Image
         uses: actions/upload-artifact@v4
         with:
-          name: hiphi-uefi-build
-          path: artifacts/
-          if-no-files-found: error
-          retention-days: 14
+          name: Mu-hiphi-UEFI
+          path: |
+            *.img
+            **/Mu-hiphi*.img
+            build/workspace/Build/**/*.img
