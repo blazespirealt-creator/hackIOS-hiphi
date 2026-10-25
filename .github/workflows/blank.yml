@@ -1,0 +1,111 @@
+
+name: HackiOS Edge 30 Pro Port
+
+on:
+  workflow_dispatch:
+    inputs:
+      device_codename:
+        description: "Motorola Edge 30 Pro codename"
+        required: true
+        default: "rtwo"
+      build_uefi:
+        description: "Attempt UEFI build after porting support exists"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout HackiOS
+        uses: actions/checkout@v4
+        with:
+          repository: oosexgang/hackios-xnu-kernel
+          path: hackios
+
+      - name: Checkout Mu-Silicium
+        uses: actions/checkout@v4
+        with:
+          repository: blazespirealt-creator/Mu-Silicium
+          path: Mu-Silicium
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git python3 python3-pip \
+            build-essential clang lld \
+            device-tree-compiler \
+            acpica-tools uuid-dev \
+            nasm iasl
+
+      - name: Inspect Motorola port prerequisites
+        env:
+          DEVICE: ${{ inputs.device_codename }}
+        run: |
+          set -eu
+
+          mkdir -p report
+
+          {
+            echo "HackiOS Motorola Edge 30 Pro port"
+            echo "Device codename: $DEVICE"
+            echo "Host: $(uname -a)"
+            echo
+            echo "HackiOS device profiles:"
+            find hackios/common/devices \
+              -maxdepth 1 -type f -print
+            echo
+            echo "Mu-Silicium platform packages:"
+            find Mu-Silicium/Platforms \
+              -mindepth 2 -maxdepth 3 -type d -print
+            echo
+            echo "UEFI build entry points:"
+            find Mu-Silicium \
+              -maxdepth 3 \
+              \( -name build_uefi.py \
+                 -o -name setup_env.sh \
+                 -o -name Building.md \) \
+              -print
+            echo
+            echo "HackiOS porting instructions:"
+            sed -n '1,240p' hackios/docs/PORTING.md
+          } | tee report/port-report.txt
+
+      - name: Check for an existing device profile
+        env:
+          DEVICE: ${{ inputs.device_codename }}
+        run: |
+          set -eu
+
+          PROFILE="hackios/common/devices/${DEVICE}.conf"
+          PLATFORM="hackios/common/devices/${DEVICE}.platform.c"
+
+          {
+            if [ -f "$PROFILE" ]; then
+              echo "Device profile exists: $PROFILE"
+            else
+              echo "Device profile missing: $PROFILE"
+              echo "A verified device tree and platform port are required."
+            fi
+
+            if [ -f "$PLATFORM" ]; then
+              echo "Loader platform exists: $PLATFORM"
+            else
+              echo "Loader platform missing: $PLATFORM"
+            fi
+          } | tee report/device-check.txt
+
+      - name: Upload port diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge30pro-hackios-port-report
+          path: report/
+          if-no-files-found: error
+          retention-days: 14
