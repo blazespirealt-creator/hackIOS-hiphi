@@ -7,10 +7,13 @@ echo "Starting UEFI build process for device: $DEVICE"
 export WORKSPACE="$PWD"
 export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
 
-# Automatically clone missing EDK2 dependencies if they don't exist
+# Clone edk2 with recursive submodules to include Brotli and other tools
 if [ ! -d "edk2" ]; then
-    echo "Cloning edk2..."
-    git clone --depth 1 https://github.com/tianocore/edk2.git
+    echo "Cloning edk2 with submodules..."
+    git clone --depth 1 --recursive https://github.com/tianocore/edk2.git
+else
+    echo "Updating edk2 submodules..."
+    cd edk2 && git submodule update --init --recursive && cd ..
 fi
 
 if [ ! -d "edk2-platforms" ]; then
