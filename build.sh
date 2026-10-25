@@ -4,20 +4,28 @@ set -e
 DEVICE="${1:-hiphi}"
 echo "Starting UEFI build process for device: $DEVICE"
 
-# Initialize workspace paths
 export WORKSPACE="$PWD"
-export PACKAGES_PATH="$WORKSPACE/edk2:$WORKSPACE/edk2-platforms:$WORKSPACE/edk2-non-osi:$WORKSPACE/device"
-
-# Setup GCC toolchain prefix for ARM64
 export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
 
-# Check if edk2 directory exists, otherwise hint to add submodules
+# Automatically clone missing EDK2 dependencies if they don't exist
 if [ ! -d "edk2" ]; then
-    echo "Error: 'edk2' directory missing. Make sure submodules are checked out recursively."
-    exit 1
+    echo "Cloning edk2..."
+    git clone --depth 1 https://github.com/tianocore/edk2.git
 fi
 
-# Build EDK2 BaseTools if needed
+if [ ! -d "edk2-platforms" ]; then
+    echo "Cloning edk2-platforms..."
+    git clone --depth 1 https://github.com/tianocore/edk2-platforms.git
+fi
+
+if [ ! -d "edk2-non-osi" ]; then
+    echo "Cloning edk2-non-osi..."
+    git clone --depth 1 https://github.com/tianocore/edk2-non-osi.git
+fi
+
+export PACKAGES_PATH="$WORKSPACE/edk2:$WORKSPACE/edk2-platforms:$WORKSPACE/edk2-non-osi:$WORKSPACE/device"
+
+# Build EDK2 BaseTools
 echo "Building BaseTools..."
 make -C edk2/BaseTools
 
@@ -28,7 +36,6 @@ source edk2/edksetup.sh
 set -e
 
 # Build platform configuration matching the device codename
-# (Adjust the DSC path if your platform layout differs)
 if [ -f "Platforms/Sm8450Pkg/Sm8450.dsc" ]; then
     build -a AARCH64 -t GCC5 -p Platforms/Sm8450Pkg/Sm8450.dsc
 elif [ -f "DeviceTreePkg/DeviceTree.dsc" ]; then
