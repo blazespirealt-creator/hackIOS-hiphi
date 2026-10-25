@@ -1,111 +1,130 @@
 
-name: HackiOS Edge 30 Pro Port
+name: HackiOS hiphi UEFI Build
 
 on:
   workflow_dispatch:
-    inputs:
-      device_codename:
-        description: "Motorola Edge 30 Pro codename"
-        required: true
-        default: "rtwo"
-      build_uefi:
-        description: "Attempt UEFI build after porting support exists"
-        type: boolean
-        required: true
-        default: false
 
 permissions:
   contents: read
 
 jobs:
-  prepare:
+  build-uefi:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 180
 
     steps:
+      - name: Checkout Motorola device repository
+        uses: actions/checkout@v4
+        with:
+          path: device
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git build-essential clang lld llvm \
+            nasm python3 python3-pip python3-venv \
+            device-tree-compiler uuid-dev \
+            acpica-tools gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu
+
       - name: Checkout HackiOS
         uses: actions/checkout@v4
         with:
           repository: oosexgang/hackios-xnu-kernel
           path: hackios
 
-      - name: Checkout Mu-Silicium
-        uses: actions/checkout@v4
-        with:
-          repository: blazespirealt-creator/Mu-Silicium
-          path: Mu-Silicium
-
-      - name: Install dependencies
+      - name: Prepare device configuration
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git python3 python3-pip \
-            build-essential clang lld \
-            device-tree-compiler \
-            acpica-tools uuid-dev \
-            nasm iasl
+          set -eux
+          cd hackios
 
-      - name: Inspect Motorola port prerequisites
-        env:
-          DEVICE: ${{ inputs.device_codename }}
+          test -f ../device/hiphi.dtb
+
+          common/new-device.sh hiphi ../device/hiphi.dtb
+
+          test -f common/devices/hiphi.conf
+          test -f common/devices/hiphi.platform.c
+
+      - name: Prepare Mu-Silicium source
         run: |
-          set -eu
+          set -eux
+          cd hackios
 
-          mkdir -p report
+          bash uefi/apply.sh
 
-          {
-            echo "HackiOS Motorola Edge 30 Pro port"
-            echo "Device codename: $DEVICE"
-            echo "Host: $(uname -a)"
-            echo
-            echo "HackiOS device profiles:"
-            find hackios/common/devices \
-              -maxdepth 1 -type f -print
-            echo
-            echo "Mu-Silicium platform packages:"
-            find Mu-Silicium/Platforms \
-              -mindepth 2 -maxdepth 3 -type d -print
-            echo
-            echo "UEFI build entry points:"
-            find Mu-Silicium \
-              -maxdepth 3 \
-              \( -name build_uefi.py \
-                 -o -name setup_env.sh \
-                 -o -name Building.md \) \
-              -print
-            echo
-            echo "HackiOS porting instructions:"
-            sed -n '1,240p' hackios/docs/PORTING.md
-          } | tee report/port-report.txt
+          test -f Mu-Silicium/build_uefi.py
 
-      - name: Check for an existing device profile
-        env:
-          DEVICE: ${{ inputs.device_codename }}
+      - name: Check Motorola platform implementation
         run: |
           set -eu
+          cd hackios
 
-          PROFILE="hackios/common/devices/${DEVICE}.conf"
-          PLATFORM="hackios/common/devices/${DEVICE}.platform.c"
+          echo "Checking for a real hiphi UEFI platform."
 
-          {
-            if [ -f "$PROFILE" ]; then
-              echo "Device profile exists: $PROFILE"
-            else
-              echo "Device profile missing: $PROFILE"
-              echo "A verified device tree and platform port are required."
-            fi
+          find Mu-Silicium/Platforms \
+            -maxdepth 3 -type d -print
 
-            if [ -f "$PLATFORM" ]; then
-              echo "Loader platform exists: $PLATFORM"
-            else
-              echo "Loader platform missing: $PLATFORM"
-            fi
-          } | tee report/device-check.txt
+          if [ ! -d Mu-Silicium/Platforms/Motorola/hiphiPkg ]; then
+            echo "::error::Motorola hiphiPkg is missing."
+            echo "Implement the hiphi platform package before building."
+            exit 1
+          fi
 
-      - name: Upload port diagnostics
+          if [ ! -d Mu-Silicium/Binaries/hiphi ]; then
+            echo "::error::hiphi firmware drivers are missing."
+            exit 1
+          fi
+
+      - name: Install Python requirements
+        run: |
+          set -eux
+          cd hackios
+
+          python3 -m venv venv
+          venv/bin/pip install \
+            -r Mu-Silicium/pip-requirements.txt
+
+      - name: Build Motorola UEFI
+        run: |
+          set -eux
+          cd hackios
+
+          ln -sfn /usr/bin/nasm \
+            Mu-Silicium/Mu_Basecore/BaseTools/Bin/mu_nasm_extdep/Linux-x86-64/nasm
+
+          ln -sfn /usr/bin/ndisasm \
+            Mu-Silicium/Mu_Basecore/BaseTools/Bin/mu_nasm_extdep/Linux-x86-64/ndisasm
+
+          cd Mu-Silicium
+          source ../venv/bin/activate
+
+          python3 build_uefi.py \
+            -d hiphi \
+            -r RELEASE
+
+      - name: Package UEFI build artifacts
+        run: |
+          set -eux
+          cd hackios
+
+          mkdir -p ../artifacts
+
+          find Mu-Silicium/Build/hiphiPkg \
+            -name SILICIUM_UEFI.fd \
+            -type f \
+            -exec cp {} ../artifacts/hiphi-uefi.fd \;
+
+          test -s ../artifacts/hiphi-uefi.fd
+
+          sha256sum ../artifacts/hiphi-uefi.fd \
+            > ../artifacts/SHA256SUMS.txt
+
+      - name: Upload UEFI artifacts
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: edge30pro-hackios-port-report
-          path: report/
+          name: hiphi-uefi-build
+          path: artifacts/
           if-no-files-found: error
           retention-days: 14
