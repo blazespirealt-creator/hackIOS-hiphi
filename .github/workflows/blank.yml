@@ -14,31 +14,50 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
-      - name: Install Build Dependencies
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Build Dependencies & Tools
         run: |
           sudo apt-get update && sudo apt-get install -y \
             build-essential \
             uuid-dev \
             iasl \
             git \
-            python3 \
-            python3-pip \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
             nasm \
             acpica-tools \
-            zip
+            zip \
+            mono-devel
+          python -m pip install --upgrade pip
+          pip install edk2-pytool-library edk2-pytool-extensions setup-cfg-fmt
 
-      - name: Set up Environment and Compile UEFI
+      - name: Compile UEFI Image
         run: |
-          if [ -f "build.sh" ]; then
-            bash build.sh --device hiphi
-          elif [ -f "compile.sh" ]; then
-            bash compile.sh hiphi
+          # Set GCC arm64 toolchain environment variables
+          export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
+
+          # Find and execute the Python build script in the repository
+          if [ -f "build.py" ]; then
+            python3 build.py -d hiphi
+          elif [ -f "edk2_build.py" ]; then
+            python3 edk2_build.py -d hiphi
+          elif [ -f "Platforms/hiphi/platform.build.py" ]; then
+            python3 Platforms/hiphi/platform.build.py
           else
-            echo "No standard build script found. Please check your repository structure."
-            exit 1
+            echo "Searching for available build scripts..."
+            BUILD_SCRIPT=$(find . -maxdepth 2 -name "*build*.py" | head -n 1)
+            if [ -n "$BUILD_SCRIPT" ]; then
+              python3 "$BUILD_SCRIPT" -d hiphi
+            else
+              echo "Error: No Python build script found in repository."
+              exit 1
+            fi
           fi
 
       - name: Upload Built UEFI Image
@@ -46,6 +65,6 @@ jobs:
         with:
           name: Mu-hiphi-UEFI
           path: |
-            *.img
-            **/Mu-hiphi*.img
-            build/workspace/Build/**/*.img
+            **/*.img
+            **/*.bin
+            **/*.fd
